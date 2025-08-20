@@ -20,4 +20,5 @@ from django.conf import settings
 urlpatterns = [
     path("admin/", admin.site.urls),
     path('', include('studentbookfrontend.urls.user_urls')),
+    path('', include('studentbookfrontend.urls.razorpay_urls')),
 ]

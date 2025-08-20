@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework import status, permissions
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
+from studentbookfrontend.notifications.otp_service import *
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import smtplib
@@ -28,9 +29,9 @@ import random
 from studentbookfrontend.models import *
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+from rest_framework.exceptions import ValidationError
 
 # Create your views here.
-
 
 class EmailOrPhoneBackend(ModelBackend):
     def authenticate(self, request, email=None, password=None, **kwargs):
@@ -47,6 +48,33 @@ class EmailOrPhoneBackend(ModelBackend):
             user.update_login_time()  #
             return user
         return None
+
+def validate_phone_number(phone_number: str) -> str:
+    """
+    Validates a phone number string.
+    Rules:
+    - Must contain only digits (optional '+' at start).
+    - Must be between 10 and 15 digits.
+    - Returns the cleaned phone number if valid.
+    - Raises ValidationError if invalid.
+    """
+
+    if not phone_number:
+        raise ValidationError("Phone number is required.")
+
+    # Allow '+' at start
+    if phone_number.startswith("+"):
+        digits = phone_number[1:]
+    else:
+        digits = phone_number
+
+    if not digits.isdigit():
+        raise ValidationError("Phone number must contain digits only.")
+
+    if len(digits) < 10 or len(digits) > 15:
+        raise ValidationError("Phone number must be between 10 and 15 digits.")
+
+    return phone_number
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
@@ -134,9 +162,14 @@ class ForgotPasswordAPIView(APIView):
     def post(self, request, *args, **kwargs):
 
         json_data = request.data
-        email = json_data.get("email")
+        user_name = json_data.get("user")
 
-        user = User.objects.filter(email=email).first()
+        if '@' in user_name:
+
+            user = User.objects.filter(email=user_name).first()
+        else:
+            user = User.objects.filter(phone_number=user_name).first()
+
 
         if user:
 
@@ -200,35 +233,21 @@ class ForgotPasswordAPIView(APIView):
 
     def put(self, request, *args, **kwargs):
         json_data = request.data
-        email = json_data.get("email")
+        user_name = json_data.get("user")
+
+        if '@' in user_name:
+
+            user = User.objects.filter(email=user_name).first()
+        else:
+            user = User.objects.filter(phone_number=user_name).first()
+
         otp = json_data.get("otp")
         print(otp)
         new_password = json_data.get("new_password")
         confirm_new_password = json_data.get("confirm_new_password")
 
-        # Step 1: Verify OTP
-        if otp and not new_password and not confirm_new_password:
-            if not all([email, otp]):
-                # return Response({"message": "Email and OTP are required."}, status=status.HTTP_400_BAD_REQUEST)
-                return api_response(
-                message="Email and OTP are required.",
-                message_type="error",
-                status_code=status.HTTP_400_BAD_REQUEST
-                        )
-
-            user = User.objects.filter(email=email, otp=otp).first()
-           
-            if user:
-                # OTP is correct, mark it as verified
-                user.otp_verified = True  # Assuming you have this field
-                user.save()
-                return Response({"message": "OTP verified successfully."}, status=status.HTTP_200_OK)
-            else:
-                return Response({"message": "Invalid OTP or email."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Step 2: Update Password
-        elif otp and new_password and confirm_new_password:
-            if not all([email, otp, new_password, confirm_new_password]):
+        if otp and new_password and confirm_new_password:
+            if not all([user_name, otp, new_password, confirm_new_password]):
                 # return Response({"message": "All fields are required."}, status=status.HTTP_400_BAD_REQUEST)
                 return api_response(
                 message="All fields are required.",
@@ -244,8 +263,7 @@ class ForgotPasswordAPIView(APIView):
                 status_code=status.HTTP_400_BAD_REQUEST
                         )
 
-            user = User.objects.filter(email=email, otp=otp).first()
-            print("user",user)
+            # user = User.objects.filter(email=user_name, otp=otp).first()
             if user:
                 user.set_password(new_password)
                 user.otp = None
@@ -276,6 +294,137 @@ class ForgotPasswordAPIView(APIView):
                         )
 
 
+# class StudentRegisterAPIView(APIView):
+
+
+#     def post(self, request, *args, **kwargs):
+#         json_data = request.data
+
+#         try:
+#             validate_email(json_data['email'])
+#         except ValidationError as e:
+#             # return Response({"message": "Invalid email format."}, status=status.HTTP_400_BAD_REQUEST)
+#             return api_response(
+#                 message="Invalid email format.",
+#                 message_type="error",
+#                 status_code=status.HTTP_400_BAD_REQUEST
+#             )
+
+#         # try:
+#         try:
+#             customer = User.objects.get(email=json_data['email'])
+   
+#             # return Response({"error": "Email already exists"}, status=status.HTTP_400_BAD_REQUEST)
+#             return api_response(
+#                 message="Email already exists",
+#                 message_type="error",
+#                 status_code=status.HTTP_400_BAD_REQUEST
+#             )
+#         except User.DoesNotExist:
+#             try:
+#                 customer = User.objects.get(phone_number=json_data['phone_number'])
+#                 # if customer:
+#                     # print("bye")
+#                 # return Response({"error": "Phone number already exists"}, status=status.HTTP_400_BAD_REQUEST)
+#                 return api_response(
+#                 message="Phone number already exists",
+#                 message_type="error",
+#                 status_code=status.HTTP_400_BAD_REQUEST
+#                         )
+#             except User.DoesNotExist:
+#                 # If neither email nor phone number exists, proceed with your logic here
+#                 # pass
+
+#         # except:
+
+#                 class_name = json_data['student_class']
+#                 try:
+#                     class_obj = Class.objects.get(id=class_name)
+#                 except Class.DoesNotExist:
+#                     # return Response({"error": "Class not found"}, status=400)
+#                     return api_response(
+#                                     message="Class not found",
+#                                     message_type="error",
+#                                     status_code=status.HTTP_400_BAD_REQUEST
+#                                 )
+
+#                 customer_register = Student(
+#                     email=json_data['email'],
+#                     first_name=json_data['first_name'],
+#                     last_name=json_data['last_name'],
+#                     phone_number=json_data['phone_number'],
+#                     address=json_data['address'],
+#                     zip_code=json_data['zip_code'],
+#                     user_type='student',
+#                     student_class = class_obj,
+#                     is_active=False
+#                 )
+#                 customer_register.save()
+
+#                 user = Student.objects.get(email=json_data['email'])
+
+#                 if user:
+
+#                     otp = str(random.randint(100000, 999999))
+#                     user.otp = otp
+#                     user.save()
+#                     subject = 'Registration OTP'
+#                     # Email configuration
+#                     sender_email = EMAIL_HOST_USER
+#                     receiver_email = json_data['email']
+#                     body = f"OTP to register on School Book : {otp}"
+
+#                     # Create a MIME multipart message
+#                     message = MIMEMultipart()
+#                     message["From"] = f'School Book <{sender_email}>'
+#                     message["To"] = receiver_email
+#                     message["Subject"] = subject
+
+#                     # # Attach plain text version
+#                     message.attach(MIMEText(body, "plain"))
+
+#                     smtp_server = EMAIL_HOST
+#                     smtp_port = 465  # SMTP SSL/TLS port
+
+#                     # Login credentials for SMTP server
+#                     smtp_username = EMAIL_HOST_USER
+#                     smtp_password = EMAIL_HOST_PASSWORD
+
+#                     # Create an SMTP session
+#                     try:
+#                         server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+#                         server.login(smtp_username, smtp_password)
+
+#                         # Send the email
+#                         text = message.as_string()
+#                         server.sendmail(sender_email, receiver_email, text)
+#                         print("Email sent successfully!")
+
+
+
+#                     except Exception as e:
+#                         print(f"Error: {e}")
+#                     finally:
+#                         # Close the SMTP session
+#                         server.quit()
+
+#                     # return Response({"message": "For registering on School Book  an OTP sent to your email."},
+#                     #                 status=status.HTTP_200_OK)
+#                     return api_response(
+#                                     message="For registering on School Book  an OTP sent to your email.",
+#                                     message_type="success",
+#                                     status_code=status.HTTP_200_OK
+#                                 )
+#                 else:
+#                     # return Response({"message": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+#                     return api_response(
+#                                     message="User not found.",
+#                                     message_type="error",
+#                                     status_code=status.HTTP_404_NOT_FOUND
+#                                 )
+
+
 class StudentRegisterAPIView(APIView):
 
 
@@ -283,128 +432,108 @@ class StudentRegisterAPIView(APIView):
         json_data = request.data
 
         try:
-            validate_email(json_data['email'])
+            validate_email(json_data.get('email'))
         except ValidationError as e:
-            # return Response({"message": "Invalid email format."}, status=status.HTTP_400_BAD_REQUEST)
             return api_response(
                 message="Invalid email format.",
                 message_type="error",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
-
-        # try:
+        
         try:
-            customer = User.objects.get(email=json_data['email'])
-   
-            # return Response({"error": "Email already exists"}, status=status.HTTP_400_BAD_REQUEST)
+            phone_number = validate_phone_number(json_data.get('phone_number'))
+        except ValidationError as e:
             return api_response(
-                message="Email already exists",
+                message="Invalid phone Number format.",
                 message_type="error",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
+
+
+        try:
+            user = User.objects.get(phone_number=json_data.get('phone_number'))
+
         except User.DoesNotExist:
             try:
-                customer = User.objects.get(phone_number=json_data['phone_number'])
-                # if customer:
-                    # print("bye")
-                # return Response({"error": "Phone number already exists"}, status=status.HTTP_400_BAD_REQUEST)
-                return api_response(
-                message="Phone number already exists",
-                message_type="error",
-                status_code=status.HTTP_400_BAD_REQUEST
-                        )
+                user = User.objects.get(email=json_data.get('email'))
             except User.DoesNotExist:
-                # If neither email nor phone number exists, proceed with your logic here
-                # pass
+                user = None
 
-        # except:
-
-                class_name = json_data['student_class']
-                try:
-                    class_obj = Class.objects.get(id=class_name)
-                except Class.DoesNotExist:
-                    # return Response({"error": "Class not found"}, status=400)
-                    return api_response(
-                                    message="Class not found",
-                                    message_type="error",
-                                    status_code=status.HTTP_400_BAD_REQUEST
-                                )
-
-                customer_register = Student(
-                    email=json_data['email'],
-                    first_name=json_data['first_name'],
-                    last_name=json_data['last_name'],
-                    phone_number=json_data['phone_number'],
-                    address=json_data['address'],
-                    zip_code=json_data['zip_code'],
-                    user_type='student',
-                    student_class = class_obj,
-                    is_active=False
+        if user:
+            if not user.is_active and not user.otp_verified:
+                send_otp_email(user,'Registration OTP')
+                # send_otp_phone_number(user)
+                return api_response(
+                    message="User already registered but not verified. We sent a new OTP.",
+                    message_type="warning",
+                    status_code=status.HTTP_200_OK
                 )
-                customer_register.save()
+            elif not StudentPackage.objects.filter(student = user):
+                return api_response(
+                    message="User already registered but Not taken any Course.",
+                    message_type="warning",
+                    status_code=status.HTTP_200_OK
+                )
+            else:
+                return api_response(
+                    message="Email Or Phone number already exists.",
+                    message_type="error",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+        else:
 
-                user = Student.objects.get(email=json_data['email'])
+            class_name = json_data['student_class']
+            try:
+                class_obj = Class.objects.get(id=class_name)
+            except Class.DoesNotExist:
+                return api_response(
+                                message="Class not found",
+                                message_type="error",
+                                status_code=status.HTTP_400_BAD_REQUEST
+                            )
+            phone_number = json_data.get("phone_number")
+            if not phone_number:
+                return api_response(
+                                message="Phone Number not found",
+                                message_type="error",
+                                status_code=status.HTTP_400_BAD_REQUEST
+                            )
+            customer_register = Student(
+                email=json_data.get("email"),   # optional
+                first_name=json_data.get("first_name"),
+                last_name=json_data.get("last_name"),
+                phone_number=phone_number,             # ✅ required
+                address=json_data.get("address"),
+                zip_code=json_data.get("zip_code"),
+                user_type="student",
+                student_class=class_obj,
+                is_active=False
+            )
+            customer_register.set_password(json_data['password'])
+            print('hello')
+            customer_register.save()
+            
 
-                if user:
+            user = Student.objects.get(phone_number = phone_number)
 
-                    otp = str(random.randint(100000, 999999))
-                    user.otp = otp
-                    user.save()
-                    subject = 'Registration OTP'
-                    # Email configuration
-                    sender_email = EMAIL_HOST_USER
-                    receiver_email = json_data['email']
-                    body = f"OTP to register on School Book : {otp}"
+            if user:
+                subject = 'Registration OTP'
+                send_otp_email(user,subject)
+                # send_otp_phone_number(user)
+               
+                return api_response(
+                                message="For registering on School Book  an OTP sent to your email.",
+                                message_type="success",
+                                status_code=status.HTTP_200_OK
+                            )
+            else:
+                # return Response({"message": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
-                    # Create a MIME multipart message
-                    message = MIMEMultipart()
-                    message["From"] = f'School Book <{sender_email}>'
-                    message["To"] = receiver_email
-                    message["Subject"] = subject
-
-                    # # Attach plain text version
-                    message.attach(MIMEText(body, "plain"))
-
-                    smtp_server = EMAIL_HOST
-                    smtp_port = 465  # SMTP SSL/TLS port
-
-                    # Login credentials for SMTP server
-                    smtp_username = EMAIL_HOST_USER
-                    smtp_password = EMAIL_HOST_PASSWORD
-
-                    # Create an SMTP session
-                    try:
-                        server = smtplib.SMTP_SSL(smtp_server, smtp_port)
-                        server.login(smtp_username, smtp_password)
-
-                        # Send the email
-                        text = message.as_string()
-                        server.sendmail(sender_email, receiver_email, text)
-                        print("Email sent successfully!")
-
-
-
-                    except Exception as e:
-                        print(f"Error: {e}")
-                    finally:
-                        # Close the SMTP session
-                        server.quit()
-
-                    # return Response({"message": "For registering on School Book  an OTP sent to your email."},
-                    #                 status=status.HTTP_200_OK)
-                    return api_response(
-                                    message="For registering on School Book  an OTP sent to your email.",
-                                    message_type="success",
-                                    status_code=status.HTTP_200_OK
-                                )
-                else:
-                    # return Response({"message": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-
-                    return api_response(
-                                    message="User not found.",
-                                    message_type="error",
-                                    status_code=status.HTTP_404_NOT_FOUND
-                                )
+                return api_response(
+                                message="User not found.",
+                                message_type="error",
+                                status_code=status.HTTP_404_NOT_FOUND
+                            )
 
 
 class StudentActivationAPIView(APIView):
@@ -413,7 +542,14 @@ class StudentActivationAPIView(APIView):
     def post(self, request, *args, **kwargs):
         json_data = request.data
         otp = json_data.get('otp',None)
-        user = Student.objects.get(email=json_data['email'])
+        user = Student.objects.get(phone_number=json_data['phone_number'])
+
+        if not user:
+            return api_response(
+                            message="User Not Fonund",
+                            message_type="error",
+                            status_code=status.HTTP_400_BAD_REQUEST
+                        )
         
         if  otp is None:
             # response = {
@@ -427,10 +563,10 @@ class StudentActivationAPIView(APIView):
                             status_code=status.HTTP_400_BAD_REQUEST
                         )
         
-            
+        print('user.otp',user.otp)
         if user.otp == json_data['otp']:
            
-            user.set_password(json_data['password'])
+            # user.set_password(json_data['password'])
             user.is_active=True
             user.otp_verified = True
             
@@ -439,11 +575,11 @@ class StudentActivationAPIView(APIView):
 
             subject = 'Welcome to Student Book!'
             context = {
-                'customer_name': f"{json_data['first_name']} {json_data['last_name']}",
-                'login_id': json_data['email'],
-                'password': json_data['password'],
+                'customer_name': f"{user.first_name} {user.last_name}",
+                'login_id': user.email if user.email else None,
+                # 'password': json_data['password'],
                 'phone_number': json_data['phone_number'],
-                'address': json_data['address'],
+                # 'address': json_data['address'],
             }
             html_message = render_to_string('welcome_mail.html', context)
             plain_message = strip_tags(html_message)
@@ -491,18 +627,19 @@ class StudentActivationAPIView(APIView):
             # }
 
             # return Response(response, status=status.HTTP_201_CREATED)
+            refresh = RefreshToken.for_user(user)
+            access_token = str(refresh.access_token)
             return api_response(
                             message="Your registration completed successfully",
                             message_type="success",
-                            status_code=status.HTTP_200_OK
+                            status_code=status.HTTP_200_OK,
+                            data={
+                                    "refresh": str(refresh),
+                                    "access": access_token
+                                }
                         )
             
         else:
-            # response = {
-            #     "message": "OTP is incorrect"
-            # }
-
-            # return Response(response, status=status.HTTP_400_BAD_REQUEST)
             return api_response(
                             message="OTP is incorrect",
                             message_type="error",

@@ -29,3 +29,10 @@ admin.site.register(School,SchoolAdmin)
 admin.site.register(Class,ClassAdmin)
 
 #user models register end
+
+
+#Subscriptions
+class SubscriptionOrderAdmin(admin.ModelAdmin):
+    list_display = ['id', 'student', 'course','price','payment_status']
+
+admin.site.register(SubscriptionOrder,SubscriptionOrderAdmin)

@@ -34,35 +34,67 @@ class StudentPackage(models.Model):
     def __str__(self):
         return f"{self.student.email} - {self.course.name}"
 
+# class UserManager(BaseUserManager):
+#     def create_user(self, email, password=None):
+#         """
+#         Creates and saves a User with the given email, date of
+#         birth and password.
+#         """
+#         if not email:
+#             raise ValueError("Users must have an email address")
+
+#         user = self.model(
+#             email=self.normalize_email(email),
+#         )
+
+#         user.set_password(password)
+#         user.save(using=self._db)
+#         return user
+
+#     def create_superuser(self, email, password=None):
+#         """
+#         Creates and saves a superuser with the given email, date of
+#         birth and password.
+#         """
+#         user = self.create_user(
+#             email,
+#             password=password,
+#         )
+#         user.is_superuser = True
+#         user.save(using=self._db)
+#         return user
+
+
 class UserManager(BaseUserManager):
-    def create_user(self, email, password=None):
+    def create_user(self, phone_number, password=None):
         """
         Creates and saves a User with the given email, date of
         birth and password.
         """
-        if not email:
+        if not phone_number:
             raise ValueError("Users must have an email address")
 
         user = self.model(
-            email=self.normalize_email(email),
+            phone_number=self.normalize_email(phone_number),
         )
 
         user.set_password(password)
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, email, password=None):
+    def create_superuser(self, phone_number, password=None):
         """
         Creates and saves a superuser with the given email, date of
         birth and password.
         """
         user = self.create_user(
-            email,
+            phone_number,
             password=password,
         )
         user.is_superuser = True
         user.save(using=self._db)
         return user
+
 
 class User(AbstractBaseUser):
     USER_TYPE_CHOICES = [  
@@ -72,9 +104,11 @@ class User(AbstractBaseUser):
     ]
 
     email = models.EmailField(
-        verbose_name="email address",
+       
         max_length=255,
-        unique=True,
+        null=True,
+        blank=True
+        
     )
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
@@ -82,7 +116,7 @@ class User(AbstractBaseUser):
     is_superuser = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
-    phone_number = models.CharField(max_length=50,null=True)
+    phone_number = models.CharField(max_length=50,unique=True, verbose_name="phone number",)
     address=models.CharField(max_length=300,null=True,blank=True)
     city = models.CharField(max_length=200,null=True,blank=True)
     state = models.CharField(max_length=200,null=True,blank=True)
@@ -94,11 +128,11 @@ class User(AbstractBaseUser):
     registered_date = models.DateTimeField(auto_now_add=True)
     objects = UserManager()
 
-    USERNAME_FIELD = "email"
+    USERNAME_FIELD = "phone_number"
     REQUIRED_FIELDS = []
 
     def __str__(self):
-        return self.email
+        return self.phone_number
     def update_login_time(self):
         self.login_time = timezone.now()
         self.save()
@@ -138,7 +172,57 @@ class Student(User):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.email
+        return self.phone_number
     
 
 
+class SubscriptionOrder(models.Model):
+    """
+    Represents a subscription order placed by a student for a specific course.
+    Handles payment status and subscription validity dates.
+    """
+
+    PAYMENT_STATUS = [  
+        ("pending", "Pending"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+    ]
+
+    student = models.ForeignKey(
+        "Student",
+        on_delete=models.CASCADE,
+        related_name="subscription_orders"
+    )
+    course = models.ForeignKey(
+        "Class",
+        on_delete=models.CASCADE,
+        related_name="subscription_orders"
+    )
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    payment_status = models.CharField(max_length=20,choices=PAYMENT_STATUS,default="pending")
+
+    subscription_start = models.DateField(default=timezone.now)
+    subscription_end = models.DateField(blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        """
+        Automatically set subscription_end to 1 year (365 days) after
+        subscription_start if not provided manually.
+        """
+        if not self.subscription_end:
+            self.subscription_end = self.subscription_start + timedelta(days=365)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_paid(self) -> bool:
+        """
+        Returns True if the order has been paid successfully.
+        Helps in quick checks for access control or subscription validation.
+        """
+        return self.payment_status == "completed"
+
+    def __str__(self):
+        """Readable representation for admin panel & debugging."""
+        return self.student.phone_number

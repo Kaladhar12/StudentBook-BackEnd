@@ -28,7 +28,7 @@ SECRET_KEY = 'django-insecure-trrh6gg*(mhd_hr%hj4gg6vssth9fm*&3r735ngki(gxuk!jqs
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -55,7 +55,12 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+     'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.common.CommonMiddleware'
 ]
+
+CORS_ALLOW_ALL_ORIGINS = True
+
 
 ROOT_URLCONF = 'studentbookbackend.urls'
 
@@ -93,7 +98,7 @@ DATABASES = {
         'NAME': os.getenv('DB_NAME'),
         'USER': os.getenv('DB_USER'),
         'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': os.getenv('DB_HOST'),
+        'HOST': os.getenv('DB_HOST','localhost'),
         'PORT': os.getenv('DB_PORT'),
     }
 }
@@ -195,3 +200,9 @@ AUTHENTICATION_BACKENDS = [
     'studentbookfrontend.views.user_views.EmailOrPhoneBackend',  # Add the path to your custom backend
     'django.contrib.auth.backends.ModelBackend',
 ]
+
+
+TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
+TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
+
