@@ -2,6 +2,8 @@ from django.db import models
 from django.contrib.auth.models import BaseUserManager, AbstractBaseUser
 from django.utils import timezone
 from datetime import timedelta
+from smart_selects.db_fields import ChainedForeignKey
+
 # Create your models here.
 
 
@@ -16,6 +18,7 @@ class School(models.Model):
 class Class(models.Model):
     name = models.CharField(max_length=100)
     amount = models.DecimalField(max_digits=10, decimal_places=2, default=2000)
+    description = models.TextField(blank=True, null=True)
     def __str__(self):
         return self.name
     
@@ -112,7 +115,7 @@ class User(AbstractBaseUser):
     )
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
-    profile_image = models.ImageField(upload_to="profile",blank=True)
+    profile_image = models.ImageField(upload_to="profile",blank=True, null=True)
     is_superuser = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
@@ -175,6 +178,7 @@ class Student(User):
         return self.phone_number
     
 
+#Payment Status Model
 
 class SubscriptionOrder(models.Model):
     """
@@ -226,3 +230,89 @@ class SubscriptionOrder(models.Model):
     def __str__(self):
         """Readable representation for admin panel & debugging."""
         return self.student.phone_number
+
+#Course Models
+
+class Subject(models.Model):
+
+    """
+    Represents a subject under a school class.
+    Stores subject name, optional icon, and the related class.
+    """
+    name = models.CharField(max_length=100)
+    icon = models.ImageField(upload_to='subject_icons/', blank=True, null=True)
+    course = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='subjects')
+
+    def __str__(self):
+        return self.name
+    
+
+class Unit(models.Model):
+
+    """
+    Represents a unit or chapter within a specific subject and class.
+    Stores unit name, the related subject, and the class it belongs to.
+    """
+
+    unit_name = models.CharField(max_length=100)
+    description = models.CharField(max_length=255, blank=True, null=True)
+    course = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='units')
+    subject = ChainedForeignKey(Subject, chained_field="course",
+        chained_model_field="course" ,on_delete=models.CASCADE, related_name="units")
+    
+
+    def __str__(self):
+        return self.unit_name
+    
+class Chapter(models.Model):
+    """
+    Represents a chapter within a specific unit, subject, and class.
+    Stores chapter name, optional description and icon, and links to its unit, subject, and class.
+    """
+    chapter_name = models.CharField(max_length=255)
+    description = models.CharField(max_length=255, blank=True, null=True)
+    chapter_icon = models.ImageField(upload_to='chapter_icons/', blank=True, null=True)
+    course = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='chapters')
+    subject = ChainedForeignKey(Subject, chained_field="course",chained_model_field="course" ,on_delete=models.CASCADE, related_name="chapters")
+    unit = ChainedForeignKey(Unit,chained_field="subject",chained_model_field="subject", on_delete=models.CASCADE, related_name='chapters')
+    
+
+    def __str__(self):
+        return self.chapter_name
+
+class Topic(models.Model):
+
+    """
+    Represents a topic within a specific chapter, unit, subject, and class.
+    Stores topic name, optional description, and links to its chapter, unit, subject, and class.
+    """
+
+    topic_name = models.CharField(max_length=255)
+    description = models.CharField(max_length=255, blank=True, null=True)
+    course = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='topics')
+    subject = ChainedForeignKey(Subject, chained_field="course",chained_model_field="course" ,on_delete=models.CASCADE, related_name="topics")
+    unit = ChainedForeignKey(Unit,chained_field="subject",chained_model_field="subject", on_delete=models.CASCADE, related_name='topics')
+    chapter_name = ChainedForeignKey(Chapter, chained_field="unit",chained_model_field="unit" ,on_delete=models.CASCADE, related_name='topics')
+
+    def __str__(self):
+        return self.topic_name   
+
+
+class SubTopic(models.Model):
+
+    """
+    Represents a subtopic within a specific topic, chapter, unit, subject, and class.
+    Stores subtopic name, optional description, and links to its topic, chapter, unit, subject, and class.
+    """
+
+    subtopic_name = models.CharField(max_length=255)
+    description = models.CharField(max_length=255, blank=True, null=True)
+    course = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='subtopics')
+    subject = ChainedForeignKey(Subject, chained_field="course",chained_model_field="course" ,on_delete=models.CASCADE, related_name="subtopics")
+    unit = ChainedForeignKey(Unit,chained_field="subject",chained_model_field="subject", on_delete=models.CASCADE, related_name='subtopics')
+    chapter_name = ChainedForeignKey(Chapter, chained_field="unit",chained_model_field="unit" ,on_delete=models.CASCADE, related_name='subtopics')
+    topic_name = ChainedForeignKey(Topic,chained_field = 'chapter_name' ,on_delete=models.CASCADE, related_name='subtopics')
+
+    def __str__(self):
+        return self.subtopic_name
+        

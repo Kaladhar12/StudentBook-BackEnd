@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework import status, permissions
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
-from studentbookfrontend.notifications.otp_service import *
+from studentbookfrontend.notifications.message_service import *
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import smtplib
@@ -34,13 +34,14 @@ from rest_framework.exceptions import ValidationError
 # Create your views here.
 
 class EmailOrPhoneBackend(ModelBackend):
-    def authenticate(self, request, email=None, password=None, **kwargs):
+    def authenticate(self, request, username=None, password=None, **kwargs):
         UserModel = get_user_model()
+        login_id = username or kwargs.get("email") or kwargs.get("phone_number")
         try:
-            if email and '@' not in email:
-                user = UserModel.objects.get(phone_number=email)
+            if login_id and '@' not in login_id:
+                user = UserModel.objects.get(phone_number=login_id)
             else:
-                user = UserModel.objects.get(email=email)
+                user = UserModel.objects.get(email=login_id)
         except UserModel.DoesNotExist:
             user = None
 
@@ -77,7 +78,7 @@ def validate_phone_number(phone_number: str) -> str:
     return phone_number
 
 class CustomTokenObtainPairView(TokenObtainPairView):
-    serializer_class = MyTokenObtainPairSerializer
+    serializer_class = CustomTokenObtainPairSerializer
 
 class ClassListAPIView(generics.ListAPIView):
     # permission_classes = [IsAuthenticated]
@@ -164,6 +165,14 @@ class ForgotPasswordAPIView(APIView):
         json_data = request.data
         user_name = json_data.get("user")
 
+        if not user_name:
+            return api_response(
+                message="give user data",
+                message_type="error",
+                status_code=status.HTTP_400_BAD_REQUEST
+                        )
+
+
         if '@' in user_name:
 
             user = User.objects.filter(email=user_name).first()
@@ -173,50 +182,9 @@ class ForgotPasswordAPIView(APIView):
 
         if user:
 
-            otp = str(random.randint(100000, 999999))
-            user.otp = otp
-            user.save()
-            subject = 'Password Reset OTP'
-            # Email configuration
-            sender_email = EMAIL_HOST_USER
-            receiver_email = json_data['email']
-            body = f"OTP to reset your password: {otp}"
-
-            # Create a MIME multipart message
-            message = MIMEMultipart()
-            message["From"] = f'Student Book <{sender_email}>'
-            message["To"] = receiver_email
-            message["Subject"] = subject
-
-            # # Attach plain text version
-            message.attach(MIMEText(body, "plain"))
-         
-
-            # SMTP server configuration
-            smtp_server = EMAIL_HOST
-            smtp_port = 465  # SMTP SSL/TLS port
-
-            # Login credentials for SMTP server
-            smtp_username = EMAIL_HOST_USER
-            smtp_password = EMAIL_HOST_PASSWORD
-
-            # Create an SMTP session
-            try:
-                server = smtplib.SMTP_SSL(smtp_server, smtp_port)
-                server.login(smtp_username, smtp_password)
-
-                # Send the email
-                text = message.as_string()
-                server.sendmail(sender_email, receiver_email, text)
-                print("Email sent successfully!")
-            except Exception as e:
-                print(f"Error: {e}")
-            finally:
-                # Close the SMTP session
-                server.quit()
-
-            # return Response({"message": "For resetting the password an OTP sent to your email."},
-            #                 status=status.HTTP_200_OK)
+            send_otp_email(user,'Password Reset OTP')
+            send_otp_phone_number(user, 'Password Reset OTP')
+            
             return api_response(
                 message="For resetting the password an OTP sent to your email.",
                 message_type="success",
@@ -264,10 +232,10 @@ class ForgotPasswordAPIView(APIView):
                         )
 
             # user = User.objects.filter(email=user_name, otp=otp).first()
-            if user:
+            if user.otp == otp:
                 user.set_password(new_password)
                 user.otp = None
-                user.otp_verified = False 
+                user.otp_verified = True 
                 user.save()
                 # return Response({"message": "Password reset successfully."}, status=status.HTTP_200_OK)
                 return api_response(
@@ -461,8 +429,8 @@ class StudentRegisterAPIView(APIView):
 
         if user:
             if not user.is_active and not user.otp_verified:
-                send_otp_email(user,'Registration OTP')
-                # send_otp_phone_number(user)
+                # send_otp_email(user,'Registration OTP')
+                send_otp_phone_number(user,'Registration OTP')
                 return api_response(
                     message="User already registered but not verified. We sent a new OTP.",
                     message_type="warning",
@@ -510,7 +478,6 @@ class StudentRegisterAPIView(APIView):
                 is_active=False
             )
             customer_register.set_password(json_data['password'])
-            print('hello')
             customer_register.save()
             
 
@@ -518,8 +485,8 @@ class StudentRegisterAPIView(APIView):
 
             if user:
                 subject = 'Registration OTP'
-                send_otp_email(user,subject)
-                # send_otp_phone_number(user)
+                # send_otp_email(user,subject)
+                send_otp_phone_number(user,subject)
                
                 return api_response(
                                 message="For registering on School Book  an OTP sent to your email.",
@@ -552,11 +519,6 @@ class StudentActivationAPIView(APIView):
                         )
         
         if  otp is None:
-            # response = {
-            #     "message": "provide otp"
-            # }
-            
-            # return Response(response, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             return api_response(
                             message="Provide OTP",
                             message_type="error",
@@ -572,61 +534,8 @@ class StudentActivationAPIView(APIView):
             
             
             user.save()
-
-            subject = 'Welcome to Student Book!'
-            context = {
-                'customer_name': f"{user.first_name} {user.last_name}",
-                'login_id': user.email if user.email else None,
-                # 'password': json_data['password'],
-                'phone_number': json_data['phone_number'],
-                # 'address': json_data['address'],
-            }
-            html_message = render_to_string('welcome_mail.html', context)
-            plain_message = strip_tags(html_message)
-
-            # Email configuration
-            sender_email = EMAIL_HOST_USER
-            receiver_email = json_data['email']
-        
-
-            # Create a MIME multipart message
-            message = MIMEMultipart()
-            message["From"] = f'Student Book <{sender_email}>'
-            message["To"] = receiver_email
-            message["Subject"] = subject
-
-
-            html_text_part = MIMEText(html_message, "html")
-            message.attach(html_text_part)
-
-            # SMTP server configuration
-            smtp_server = EMAIL_HOST
-            smtp_port = 465  # SMTP SSL/TLS port
-
-            # Login credentials for SMTP server
-            smtp_username = EMAIL_HOST_USER
-            smtp_password = EMAIL_HOST_PASSWORD
-
-            # Create an SMTP session
-            try:
-                server = smtplib.SMTP_SSL(smtp_server, smtp_port)
-                server.login(smtp_username, smtp_password)
-
-                # Send the email
-                text = message.as_string()
-                server.sendmail(sender_email, receiver_email, text)
-                print("Email sent successfully!")
-            except Exception as e:
-                print(f"Error: {e}")
-            finally:
-                # Close the SMTP session
-                server.quit()
-
-            # response = {
-            #     "message": "Your registration completed successfully"
-            # }
-
-            # return Response(response, status=status.HTTP_201_CREATED)
+            # send_success_email(user)
+            send_succes_message_phone_number(user)
             refresh = RefreshToken.for_user(user)
             access_token = str(refresh.access_token)
             return api_response(
@@ -645,4 +554,45 @@ class StudentActivationAPIView(APIView):
                             message_type="error",
                             status_code=status.HTTP_400_BAD_REQUEST
                         )
+
+
+class ChangePasswordAPIView(APIView):
+    permission_classes = [IsAuthenticated]  # user must be logged in
+
+    def post(self, request, *args, **kwargs):
+        serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
+
+        if serializer.is_valid():
+            user = request.user
+            new_password = serializer.validated_data['new_password']
+            user.set_password(new_password)  # hashing automatically handled
+            user.save()
+            return api_response(
+                message="Password updated successfully.",
+                message_type="success",
+                status_code=status.HTTP_200_OK
+                        )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class ChangePasswordAPIView(APIView):
+    permission_classes = [IsAuthenticated]  # user must be logged in
+
+    def post(self, request, *args, **kwargs):
+        serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
+
+        if serializer.is_valid():
+            user = request.user
+            new_password = serializer.validated_data['new_password']
+            user.set_password(new_password)  # hashing automatically handled
+            user.save()
+            return api_response(
+                message="Password updated successfully.",
+                message_type="success",
+                status_code=status.HTTP_200_OK
+                        )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

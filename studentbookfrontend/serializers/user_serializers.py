@@ -46,9 +46,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         
 
         # data = super().validate(attrs)
-        username = attrs.get("email")
+        username = attrs.get("phone_number")
         password = attrs.get("password")
-        # user = authenticate(username=username, password=password)
         user = authenticate(request=self.context.get('request'), email=username, password=password)
         
         if user is None:
@@ -99,13 +98,13 @@ class StudentPackageSerializer(serializers.ModelSerializer):
         fields = ['id', 'course', 'price', 'subscription_taken_from', 'subscription_valid_till']
 
 class StudentSerializer(serializers.ModelSerializer):
-    school = SchoolSerializer(read_only=True)
-    student_class = ClassSerializer(read_only=True)
     student_packages = StudentPackageSerializer(many=True, read_only=True)
 
     class Meta:
         model = Student
-        fields = ['id', 'email', 'first_name', 'last_name', 'school', 'student_class', 'student_packages']
+        fields = ['id', 'email', 'first_name', 'last_name', 'school','profile_image','is_active','phone_number','address','city',
+                  'state','zip_code','user_type','school','student_class','student_packages']
+        # fields = '__all__'
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -115,4 +114,22 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_phone_number(self, value):
         if not re.match(r'^[6-9]\d{9}$', value):
             raise serializers.ValidationError("Enter a valid 10-digit Indian mobile number.")
+        return value
+    
+
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(required=True, write_only=True)
+    new_password = serializers.CharField(required=True, write_only=True)
+
+    def validate_old_password(self, value):
+        user = self.context['request'].user
+        if not user.check_password(value):
+            # raise serializers.ValidationError("Old password is incorrect.")
+            raise CustomAPIException(
+                message= "Old password is incorrect.",
+                message_type= "error",
+                data= None
+            )
         return value

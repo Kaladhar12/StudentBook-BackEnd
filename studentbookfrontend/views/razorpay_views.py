@@ -18,24 +18,15 @@ class RazorpayOrderAPIView(APIView):
 
     def post(self, request):
         user = request.user
-        student_class_id = request.data.get("student_class")
+        # student_class_id = request.data.get("student_class")
         amount = request.data.get("price")
 
   
 
 
-        if not student_class_id:
-     
-
-            return api_response(
-                message="Class id is required",
-                message_type="error",
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
         
         try:
 
-            student_class = Class.objects.get(id = student_class_id)
 
             order_response = rz_client.create_order(
                 amount=int(amount),
@@ -45,7 +36,7 @@ class RazorpayOrderAPIView(APIView):
 
             subscriptionorder = SubscriptionOrder(
                 student = user,
-                course = student_class,
+                course = user.student_class,
                 price = amount
             )
 
@@ -69,67 +60,51 @@ class TransactionAPIView(APIView):
 
     def post(self, request):
         data = request.data
-        if not data.get("order_id"):
+        
+        if not data.get("razorpay_order_id"):
             return api_response(
                 message="Order Id Not Given",
                 message_type="error",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
-        elif not data.get("payment_id"):
+        elif not data.get("razorpay_payment_id"):
             return api_response(
                 message="Payment Id Not Given",
                 message_type="error",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
-        elif not data.get("signature"):
+        elif not data.get("razorpay_signature"):
             return api_response(
                 message="Payment Signature Id Not Given",
                 message_type="error",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
-            
         try:
             # Verify payment
-            rz_client.verify_payment_signature({
-                'razorpay_order_id': data.get("order_id"),
-                'razorpay_payment_id': data.get("payment_id"),
-                'razorpay_signature': data.get("signature")
-            })
+            rz_client.verify_payment_signature(
+                razorpay_order_id=data.get("razorpay_order_id"),
+                razorpay_payment_id=data.get("razorpay_payment_id"),
+                razorpay_signature=data.get("razorpay_signature")
+            )
 
             student = request.user
 
-            course_id = data.get("course_id")
-            price = data.get("price")  # Make sure price is sent in request or fetch it from Course
+      
 
-            if not course_id:
-                return api_response(
-                        message="Class id is required",
-                        message_type="error",
-                        status_code=status.HTTP_400_BAD_REQUEST
-                    )
-
-            try:
-                course = Class.objects.get(id=course_id)
-            except Class.DoesNotExist:
-                # return Response({"message": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
-                return api_response(
-                        message="Course not found",
-                        message_type="error",
-                        status_code=status.HTTP_404_NOT_FOUND
-                    )
 
             purchase_date = timezone.now()
             valid_till = purchase_date + timedelta(days=365)
 
             # Create new StudentPackage subscription for this purchase
+            subscriptionorder = SubscriptionOrder.objects.filter(student = student).first()
             student_package = StudentPackage.objects.create(
-                student=student,
-                course=course,
-                price=price if price else 0,  # default to 0 if not provided
+                student=subscriptionorder.student,
+                course=subscriptionorder.course,
+                price=subscriptionorder.price if subscriptionorder.price else 0,  # default to 0 if not provided
                 subscription_taken_from=purchase_date,
                 subscription_valid_till=valid_till
             )
-            subscriptionorder = SubscriptionOrder.objects.filter(student = student).first()
+            
             subscriptionorder.payment_status = 'completed'
             subscriptionorder.save()
             # Activate student if inactive
